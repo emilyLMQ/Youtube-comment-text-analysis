@@ -301,3 +301,65 @@ plt.plot(pr['recall'],pr['precision'])
 plt.ylabel('Precision')
 plt.xlabel('Recall')
 plt.show()
+
+
+# The best model is then determined to be logistic regression based on the 
+# evaluation of accuracy, precision, recall rates as well as the area under ROC. 
+# Now the logistic regression model is used to gain insights in the cat and dog owners.
+
+# Part 2. Classify All The Users with the best model
+
+prediction_all = lr_best_model.transform(dataset)
+prediction_all.show(10)
+
+# Part 3. Get insigts of Users
+import pyspark.sql.functions as F
+#number of total user
+total_user = prediction_all.select('userid').distinct().count()
+
+# number of owner predicted
+owner_pred = prediction_all.select('userid').distinct().filter(prediction_all['prediction']==1.0).count()
+
+# predicted fraction of users who are cat/dog owners
+fraction = owner_pred/total_user
+print("Total number of users: ", total_user)
+print("Number of predicted owner: ", owner_pred)
+print('Fraction of the users who are cat/dog owners (ML estimate): ', round(fraction,3))
+
+from pyspark.ml.feature import StopWordsRemover
+import matplotlib.cm as cm
+from matplotlib import rcParams
+%matplotlib inline
+
+df_all_owner = dataset.select('words').union(prediction_all.filter(F.col('prediction') == 1.0).select('words'))
+
+stopwords_custom = ['im', 'get', 'got', 'one', 'hes', 'shes', 'dog', 'dogs', 'cats', 'cat', 'kitty', 'much', 'really', 'love','like','dont','know','want','thin',\
+                    'see','also','never','go','ive']
+
+remover1 = StopWordsRemover(inputCol="raw", outputCol="filtered")
+core = remover1.getStopWords()
+core = core + stopwords_custom
+remover = StopWordsRemover(inputCol="words", outputCol="filtered",stopWords=core)
+df_all_owner = remover.transform(df_all_owner)
+
+wc = df_all_owner.select('filtered').rdd.flatMap(lambda a: a.filtered).countByValue()
+
+df_all_owner.show(10)
+
+# wcSorted = wc.sort(lambda a: a[1])
+wcSorted = sorted(wc.items(), key=lambda kv: kv[1],reverse = True)
+wcSorted
+
+# Part 4. Identify Creators With Cat And Dog Owners In The Audience
+# Get all creators whenever the users label is True(cat/dog owner)
+df_create = dataset.select('creator_name').union(prediction_all.filter(F.col('prediction') == 1.0).select('creator_name'))
+
+df_create.createOrReplaceTempView("create_table")
+
+# get count
+create_count = spark.sql("select distinct creator_name, count(*) as Number\
+                          from create_table \
+                          group by creator_name \
+                          order by Number DESC")
+
+create_count.show()

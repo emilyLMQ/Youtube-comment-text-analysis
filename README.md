@@ -14,3 +14,4 @@ The dataset file is comma separated, with a header line defining the field names
 
 ● comment. Text of the comments made by the users.
 
+Please note that this project has originally been carried out in Databricks.

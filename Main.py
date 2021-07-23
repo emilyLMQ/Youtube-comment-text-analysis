@@ -227,3 +227,77 @@ plt.ylabel('Precision')
 plt.xlabel('Recall')
 plt.show()
 
+# Model 3. Gradient boosting
+
+from pyspark.ml.classification import GBTClassifier
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.feature import IndexToString, StringIndexer, VectorIndexer
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+# Set maxCategories so features with > 4 distinct values are treated as continuous.
+featureIndexer =\
+    VectorIndexer(inputCol="result", outputCol="indexedFeatures", maxCategories=4).fit(trainingData)
+
+gbt = GBTClassifier(maxIter=10, featuresCol = "result", labelCol = "label")
+pipeline = Pipeline(stages=[featureIndexer, gbt])
+
+
+# model tuning and cross validation
+paramGrid = (ParamGridBuilder()
+             .addGrid(gbt.maxDepth, [2, 4, 6])
+             .addGrid(gbt.maxBins, [20, 60])
+             .addGrid(gbt.maxIter, [10, 20])
+             .build())
+
+cv = CrossValidator(estimator=pipeline, estimatorParamMaps=paramGrid, evaluator=BinaryClassificationEvaluator(), numFolds=5)
+
+# run cross-validation, and choose the best set of parameters
+# train the pipeline with training data
+gbtModel = cv.fit(trainingData)
+
+gbt_best_model = gbtModel.bestModel
+gbt_predictions = gbt_best_model.transform(testData)
+
+evaluator=BinaryClassificationEvaluator(
+          labelCol='label', rawPredictionCol='rawPrediction',metricName='areaUnderROC')
+AUC = evaluator.evaluate(gbt_predictions)
+
+TP = gbt_predictions[(gbt_predictions["label"] == 1) & (gbt_predictions["prediction"] == 1.0)].count()
+FP = gbt_predictions[(gbt_predictions["label"] == 0) & (gbt_predictions["prediction"] == 1.0)].count()
+TN = gbt_predictions[(gbt_predictions["label"] == 0) & (gbt_predictions["prediction"] == 0.0)].count()
+FN = gbt_predictions[(gbt_predictions["label"] == 1) & (gbt_predictions["prediction"] == 0.0)].count()
+
+accuracy = (TP + TN)*1.0 / (TP + FP + TN + FN)
+precision = TP*1.0 / (TP + FP)
+recall = TP*1.0 / (TP + FN)
+
+print("Prediction result summary for Gradient boosting Model:  ")
+
+print ("True Positives:", TP)
+print ("False Positives:", FP)
+print ("True Negatives:", TN)
+print ("False Negatives:", FN)
+print ("Test Accuracy:", accuracy)
+print ("Test Precision:", precision)
+print ("Test Recall:", recall)
+print("Test Area Under ROC: ", AUC)
+
+# summary of the random forest model
+gradientBModel = gbt_best_model.stages[1]
+print(gradientBModel)
+
+trainingSummary = gradientBModel.summary
+roc = trainingSummary.roc.toPandas()
+plt.plot(roc['FPR'],roc['TPR'])
+plt.ylabel('False Positive Rate')
+plt.xlabel('True Positive Rate')
+plt.title('ROC Curve')
+plt.show()
+print('Training set areaUnderROC: ' + str(trainingSummary.areaUnderROC))
+
+# plot the precision-recall tradeoff curve
+pr = trainingSummary.pr.toPandas()
+plt.plot(pr['recall'],pr['precision'])
+plt.ylabel('Precision')
+plt.xlabel('Recall')
+plt.show()
